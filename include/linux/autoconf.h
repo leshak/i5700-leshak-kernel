@@ -1,7 +1,7 @@
 /*
  * Automatically generated C config: don't edit
  * Linux kernel version: 2.6.29
- * Fri May 28 10:05:45 2010
+ * Sun Jun  6 17:48:01 2010
  */
 #define AUTOCONF_INCLUDED
 #define CONFIG_VIDEO_V4L1_COMPAT 1
@@ -361,6 +361,7 @@
 #define CONFIG_VECTORS_BASE 0xffff0000
 #define CONFIG_IPV6_PRIVACY 1
 #define CONFIG_HZ 200
+#define CONFIG_CPU_32v6K 1
 #define CONFIG_CPU_HAS_ASID 1
 #define CONFIG_USB_GADGET_S3C_OTGD_HS 1
 #define CONFIG_INET_DIAG 1
@@ -500,7 +501,6 @@
 #define CONFIG_IP_PNP 1
 #define CONFIG_ZONE_DMA_FLAG 1
 #define CONFIG_IP6_NF_FILTER 1
-#define CONFIG_CPU_BPREDICT_DISABLE 1
 #define CONFIG_S3C6410_PWM 1
 #define CONFIG_NET 1
 #define CONFIG_MACH_SPICA 1
