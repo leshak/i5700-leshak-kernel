@@ -604,7 +604,7 @@ static void set_path_gain(struct snd_soc_codec *codec, int mode)
 			break;
 		case MM_AUDIO_PLAYBACK_SPK :
 		case MM_AUDIO_PLAYBACK_SPK_HP :
-			codec->write(codec, 0x08, 0x95); 	// Output Volume Control : OUT2[7:4]/OUT1[2:0]
+			codec->write(codec, 0x08, 0xC5); 	// Output Volume Control : OUT2[7:4]/OUT1[2:0] [increase vol]
 			codec->write(codec, 0x1A, 0x18); 	// Lch Output Digital Vol
 			codec->write(codec, 0x1B, 0x18); 	// Rch Output Digital Vol
 			break;

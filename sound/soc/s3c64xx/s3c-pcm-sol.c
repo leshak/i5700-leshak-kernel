@@ -58,9 +58,6 @@
 #define s3cdbg(x...)
 #endif
 
-/**
- *  24.04.2010 - increase buffer size
-**/
 static const struct snd_pcm_hardware s3c24xx_pcm_hardware = {
 	.info			= SNDRV_PCM_INFO_INTERLEAVED |
 				    SNDRV_PCM_INFO_BLOCK_TRANSFER |
