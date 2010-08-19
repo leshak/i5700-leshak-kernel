@@ -50,6 +50,8 @@ Module.symvers
 include/config
 include/linux/version.h
 include/generated
+include/linux/autoconf.h
+include/linux/compile.h
 
 # stgit generated dirs
 patches-*
