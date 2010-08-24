@@ -3,6 +3,7 @@
  * Quantum TSP driver.
  *
  * Copyright (C) 2009 Samsung Electronics Co. Ltd.
+ * Copyright (C) 2010 Lambertus Gorter (Multi-touch)
  *
  */
 
@@ -1549,7 +1550,7 @@ static u8 g_qt5480_setup[] = {
  56, 56, 56, 72,
  
  16, 255,  50,   0,
- 48,   6,   8,   0,
+ 48,  22,   8,   0,
   0,   0,   0,   0,
   0,   0,   0,   0,
   0,   0,   0,  12,
@@ -1564,7 +1565,7 @@ static u8 g_qt5480_setup[] = {
  64,  64,  64,  64,
  64,  64,  64,  64,
  64,  64,  64,  64,
-  2,   6,   8,   3,
+  2,   14,   8,   3,
   0,   0,   1,   0,
   0,   0,  25,   0,
   0,  26,   0,   6,
@@ -1772,13 +1773,140 @@ static int qt5480_write_setup_code(void)
 	return 0;
 	}
 
+
+#define STATE_RELEASED 0
+#define STATE_ENTER    1
+#define STATE_CONTACT  2
+#define SINGLETOUCH_FLAG 0x01
+#define MULTITOUCH_FLAG  0x02
+
+
+
+typedef struct touch_t
+{
+    int type;
+    int status;
+    int pos_x;
+    int pos_y;
+} touch_t;
+
+touch_t touch[] = {{SINGLETOUCH_FLAG | MULTITOUCH_FLAG, STATE_RELEASED, 0, 0}, {MULTITOUCH_FLAG, STATE_RELEASED, 0 ,0}};
+
+
+//
+// qt5480_input_contact
+//   Handles the touch state machine when receiving coordinates for a touch.
+//   Sends input device (MT-)report if necessary.
+//   Make sure to call input_sync after handling statemachines for every touch.
+//   - Touch status STATE_RELEASED will not change, no input event.
+//   - Touch status STATE_CONTACT will not change, causes input event with new coordinates.
+//   - Touch status STATE_ENTER is changed to STATE_CONTACT, causes input event for new touch with new coordinates.
+static void qt5480_input_contact(touch_t* touch, int pos_x, int pos_y)
+{
+  touch->pos_x = pos_x;
+  touch->pos_y = pos_y;
+
+  if(touch->status == STATE_ENTER)
+  {
+    touch->status = STATE_CONTACT;
+    if(touch->type | SINGLETOUCH_FLAG)
+    {
+      input_report_abs(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 1);
+    }
+  }
+
+  if(touch->status == STATE_CONTACT)
+  {
+    if(touch->type | SINGLETOUCH_FLAG)
+    {
+      input_report_abs(g_qt5480_ts_driver->input_dev, ABS_X, touch->pos_x);
+      input_report_abs(g_qt5480_ts_driver->input_dev, ABS_Y, touch->pos_y);
+    }
+    if(touch->type | MULTITOUCH_FLAG)
+    {
+      input_report_abs(g_qt5480_ts_driver->input_dev, ABS_MT_TOUCH_MAJOR, 1);
+      input_report_abs(g_qt5480_ts_driver->input_dev, ABS_MT_POSITION_X, touch->pos_x);
+      input_report_abs(g_qt5480_ts_driver->input_dev, ABS_MT_POSITION_Y, touch->pos_y);
+      input_mt_sync(g_qt5480_ts_driver->input_dev);
+    }
+  }
+}
+
+//
+// qt5480_input_nochange
+//   Handles the touch state machine when no change made for this touch.
+//   Sends input device (MT-)report if necessary.
+//   Make sure to call input_sync after handling statemachines for every touch.
+//   - Touch status STATE_RELEASED will not change, no input event.
+//   - Touch status STATE_CONTACT will not change, causes input event with previous coordinates.
+//   - Touch status STATE_ENTER will not change, no input event.
+static void qt5480_input_nochange(touch_t* touch)
+{
+  if(touch->status == STATE_CONTACT)
+  {
+    qt5480_input_contact(touch, touch->pos_x, touch->pos_y);
+  }
+}
+
+
+//
+// qt5480_input_enter
+//   Handles the touch state machine when this touch reports contact.
+//   Sends input device (MT-)report if necessary.
+//   Make sure to call input_sync after handling statemachines for every touch.
+//   - Touch status STATE_RELEASED is changed to STATE_ENTER, no input event is sent.
+//   - Touch status STATE_CONTACT will not change, causes input event with previous coordinates.
+//   - Touch status STATE_ENTER will not change, no input event.
+static void qt5480_input_enter(touch_t* touch)
+{
+  if(touch->status == STATE_RELEASED)
+  {
+    touch->status = STATE_ENTER;
+  }
+
+  if(touch->status == STATE_CONTACT)
+  {
+    qt5480_input_contact(touch, touch->pos_x, touch->pos_y);
+  }
+}
+
+
+//
+// qt5480_input_leave
+//   Handles the touch state machine when this touch reports leaving.
+//   Sends input device (MT-)report if necessary.
+//   Make sure to call input_sync after handling statemachines for every touch.
+//   - Touch status STATE_RELEASED will not change, no input event.
+//   - Touch status STATE_CONTACT is changed to STATE_RELEASED, causes input event touch released.
+//   - Touch status STATE_ENTER is changed to STATE_RELEASED, no input event.
+static void qt5480_input_leave(touch_t* touch)
+{
+  touch->pos_x = 0;
+  touch->pos_y = 0;
+  if(touch->status == STATE_CONTACT)
+  {
+    if(touch->type | SINGLETOUCH_FLAG)
+    {
+      input_report_abs(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 0);
+    }
+    if(touch->type | MULTITOUCH_FLAG)
+    {
+      input_report_abs(g_qt5480_ts_driver->input_dev, ABS_MT_TOUCH_MAJOR, 0);
+      input_mt_sync(g_qt5480_ts_driver->input_dev);
+    }
+  }
+  touch->status = STATE_RELEASED;
+}
+
+
+
 //
 // qt5480_work_func
 //
 u8 palm_touch = 0;
-u8 TouchFlag = 0,DoubleCalFlag= 0;
+u8 DoubleCalFlag= 0;
 static void qt5480_work_func(struct work_struct *aWork)
-	{
+{
 	int ret;
 	int x, y, cal_x, cal_y;
     u8 read_buf[5];
@@ -1797,49 +1925,69 @@ static void qt5480_work_func(struct work_struct *aWork)
 
 	// buf[0] == most significant 8 bits of the address
 	if(read_buf[0] == 3) 
+	{
+		if((read_buf[3] & 0x20) == 0x20)
 		{
-		if((read_buf[3] & 0x20) == 0x20) 
-			{
 			palm_touch = 1;///
 //			qt5480_i2c_write(REG_CALIBRATE, 0x55);///
 			DEBUG_MSG("palm_touch : %d  %x\n", palm_touch, read_buf[3]);
-			}
+			qt5480_input_leave(&touch[0]);
+			qt5480_input_leave(&touch[1]);
+			input_sync(g_qt5480_ts_driver->input_dev);
+		}
 		else if((read_buf[3] & 0x20) == 0x00) 
-			{
+		{
 			if(palm_touch == 1)
-				{
+			{
 				palm_touch = 0;
 				DEBUG_MSG("palm_touch : %d  %x\n", palm_touch, read_buf[3]);
 				qt5480_i2c_write(REG_CALIBRATE, 0x55);
 				msleep(10);
 				DEBUG_MSG("Palm Release Cal\n");
-				}
 			}
+		}
 		if(palm_touch == 0)
+		{
+			if((read_buf[4]&0x40) == 0x40)
 			{
-			if((read_buf[4]&0x40) == 0x40) 
-				{
 				PRINT_MSG("Calibrating : %x\n", read_buf[4]);
-				}
-			else if((read_buf[4]&0x81) == 0x81)  // Press
-				{ 
+			}
+			else if((read_buf[4]&0x80) == 0x80)  // Press
+			{
 //				input_report_key(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 1);
 //				input_sync(g_qt5480_ts_driver->input_dev);
-				TouchFlag = 1;
 				if((read_buf[4]&0x10) == 0x10) 
-					{
-					TouchFlag = 0;
+				{
 					DoubleCalFlag = 1;
 					qt5480_i2c_write(REG_CALIBRATE, 0x55);
 					msleep(10);
 					PRINT_MSG("Calibrated: %x\n", read_buf[4]);
-					}
+		            qt5480_input_leave(&touch[0]);
+		            qt5480_input_leave(&touch[1]);
+		            input_sync(g_qt5480_ts_driver->input_dev);
+				}else{
+				  /*touch 0*/
+				  if((read_buf[4]&0x01) == 0x01)
+				  {
+				    qt5480_input_enter(&touch[0]);
+				  }else{
+                    qt5480_input_leave(&touch[0]);
+				  }
+				  /*touch 1*/
+                  if((read_buf[4]&0x02) == 0x02)
+                  {
+                    qt5480_input_enter(&touch[1]);
+                  }else{
+                    qt5480_input_leave(&touch[1]);
+                  }
+                  input_sync(g_qt5480_ts_driver->input_dev);
 				}
+			}
 			else if(read_buf[4] == 0x00) // Release
-				{
-				input_report_key(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 0);
-				input_sync(g_qt5480_ts_driver->input_dev);
-				TouchFlag = 0;
+			{
+	            qt5480_input_leave(&touch[0]);
+	            qt5480_input_leave(&touch[1]);
+	            input_sync(g_qt5480_ts_driver->input_dev);
 				if(DoubleCalFlag == 1)
 					{
 					DoubleCalFlag = 0;
@@ -1847,23 +1995,23 @@ static void qt5480_work_func(struct work_struct *aWork)
 					msleep(10);
 					PRINT_MSG("Calibrated: %x\n", read_buf[4]);
 					}
-				}		
+			}
 			else 
-				{
+			{
 				PRINT_MSG("unknown press code : %x\n", read_buf[4]);
 				DO_IF_TRUE(read_buf[4] & 0x20, PRINT_MSG("ERROR BIT set\n"));
-				}
 			}
-		else if(read_buf[3] == 0xFF && read_buf[4] == 0xFF)
-			{
-			input_report_key(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 0);
-			input_sync(g_qt5480_ts_driver->input_dev);
-			TouchFlag = 0;
-			}
-			
 		}
-	else if (read_buf[0] == 4) // indicates a change in te status bytes 16 - 19
+		else if(read_buf[3] == 0xFF && read_buf[4] == 0xFF)
 		{
+			qt5480_input_leave(&touch[0]);
+			qt5480_input_leave(&touch[1]);
+			input_sync(g_qt5480_ts_driver->input_dev);
+		}
+
+	}
+	else if (read_buf[0] == 4 || read_buf[0] == 5) // indicates a change in te status bytes 16 - 19 / 20 - 23
+	{
 		y = (read_buf[1]<<2) + ((read_buf[2]>>6)& 0x3);
 		x = (read_buf[3]<<2) + ((read_buf[4]>>6)& 0x3);
 			
@@ -1874,48 +2022,32 @@ static void qt5480_work_func(struct work_struct *aWork)
 		cal_x = ((1024 - x) * 240) / 1024;
 		cal_y = ((1024 - y) * 400) / 1024;
 #endif
-
-		if(palm_touch == 0)
-			{
-			if(TouchFlag)
-				{
-				if(x)	
-					{
-					input_report_abs(g_qt5480_ts_driver->input_dev, ABS_X, cal_x);
-					}
-				
-				if(y)
-					{
-					input_report_abs(g_qt5480_ts_driver->input_dev, ABS_Y, cal_y);
-					}
-				
-				if(TouchFlag == 1)
-					{
-					input_report_key(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 1);
-					TouchFlag = 2;
-					}
-				input_sync(g_qt5480_ts_driver->input_dev);
-				
-				}
-			}
-		}
-	else if((read_buf[0] == 0xFF) &&(read_buf[4] == 0x00))// Release
+		if(read_buf[0] == 4)
 		{
-		input_report_key(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 0); 
+			qt5480_input_contact(&touch[0], cal_x, cal_y);
+			qt5480_input_nochange(&touch[1]);
+		}else{
+			qt5480_input_nochange(&touch[0]);
+			qt5480_input_contact(&touch[1], cal_x, cal_y);
+		}
 		input_sync(g_qt5480_ts_driver->input_dev);
-		TouchFlag = 0;
-		}
+
+	}
+	else if((read_buf[0] == 0xFF) &&(read_buf[4] == 0x00))// Release
+	{
+		qt5480_input_leave(&touch[0]);
+		qt5480_input_leave(&touch[1]);
+		input_sync(g_qt5480_ts_driver->input_dev);
+	}
 	else
-		{
+	{
 		// If the chip is read when the CHANGE line is not asserted, 
 		// it returns a packet with the header byte 0xFF, indicating that the packet data is invalid.
 		PRINT_MSG("unknown code: %x\n", read_buf[0]);
-		}
-	
-//	enable_irq(g_qt5480_ts_driver->client->irq);
-
-	LEAVE_FUNC;
 	}
+	
+	LEAVE_FUNC;
+}
 
 //
 // qt5480_irq_handler
@@ -2222,6 +2354,19 @@ static int qt5480_probe(struct platform_device *aDevice)
 	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_PRESSURE, 0, 255, 0, 0);
 	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_TOOL_WIDTH, 0, 15, 0, 0);
 
+	/* multitouch input device parameters */
+#if (CONFIG_SPICA_REV > CONFIG_SPICA_TEST_REV00)
+	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_MT_POSITION_X, 0, 320, 0, 0);
+	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_MT_POSITION_Y, 0, 480, 0, 0);
+	#else
+	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_MT_POSITION_X, 0, 240, 0, 0);
+	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_MT_POSITION_X, 0, 400, 0, 0);
+	#endif
+	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
+	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_MT_WIDTH_MAJOR, 0, 15, 0, 0);
+
+
+
 	ret = input_register_device(g_qt5480_ts_driver->input_dev);
 	if (ret) 
 		{
@@ -2379,13 +2524,13 @@ static int qt5480_resume(void)
 	int ret;
 
 	ENTER_FUNC;
-	ret = qt5480_i2c_write(REG_LP_MODE, 32); // LP Mode
+	ret = qt5480_i2c_write(REG_LP_MODE, g_qt5480_setup[REG_LP_MODE - 512]); // LP Mode
 	DO_IF_TRUE(ret < 0, PRINT_MSG("write LP Mode Register failed(%d)!\n", ret));
 
-	ret = qt5480_i2c_write(REG_AWAKE_TIMEOUT, 50);  // Awake Timeout
+	ret = qt5480_i2c_write(REG_AWAKE_TIMEOUT, g_qt5480_setup[REG_AWAKE_TIMEOUT - 512]);  // Awake Timeout
 	DO_IF_TRUE(ret < 0, PRINT_MSG("write Awake Timeout  Register failed(%d)!\n", ret));
 
-	ret = qt5480_i2c_write(REG_STATUS_MASK, 6); // Status Mask
+	ret = qt5480_i2c_write(REG_STATUS_MASK, g_qt5480_setup[REG_STATUS_MASK - 512]); // Status Mask
 	DO_IF_TRUE(ret < 0, PRINT_MSG(" write Status Mask Register failed(%d)!\n", ret));
 
 	ret = qt5480_i2c_write(REG_CALIBRATE, 0x55);
@@ -2748,13 +2893,14 @@ int __init qt5480_init(void)
 	}
 
 //
-// Handler for release
+// Handler for release (fixed by Steph from samdroid.net)
 //
 void __exit qt5480_exit(void)
 	{
 	ENTER_FUNC;
 	// stop interrupt handling
-	
+	disable_irq(g_qt5480_ts_driver->client->irq);
+
 	// destroy work queue first
 	// because we need to remove a chance use i2c driver
 	if (g_qt5480_work_queue)
@@ -2762,8 +2908,16 @@ void __exit qt5480_exit(void)
 		flush_workqueue(g_qt5480_work_queue);
 		destroy_workqueue(g_qt5480_work_queue);
 		}
-	
+	device_remove_file(g_ts_dev, &dev_attr_gpio);
+	device_remove_file(g_ts_dev, &dev_attr_i2c);
+	device_remove_file(g_ts_dev, &dev_attr_debug);
+	device_remove_file(g_ts_dev, &dev_attr_setup);
+	device_destroy(sec_class, 0);
+	device_del(g_ts_dev);
+
+	i2c_detach_client(g_qt5480_ts_driver->client);
 	i2c_del_driver(&g_qt5480_i2c_driver);
+	platform_driver_unregister(&g_qt5480_driver);
 	LEAVE_FUNC;
 	}
 
