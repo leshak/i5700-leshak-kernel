@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Linux kernel version: 2.6.29
-# Sat Aug 28 21:18:33 2010
+# Mon Aug 30 22:18:37 2010
 #
 CONFIG_ARM=y
 CONFIG_SYS_SUPPORTS_APM_EMULATION=y
@@ -61,7 +61,7 @@ CONFIG_SYSFS_DEPRECATED_V2=y
 # CONFIG_RELAY is not set
 # CONFIG_NAMESPACES is not set
 CONFIG_BLK_DEV_INITRD=y
-CONFIG_INITRAMFS_SOURCE="/home/leshak/i5700.2/initramfs/initrd.arm.initramfs_list"
+CONFIG_INITRAMFS_SOURCE="/home/leshak/i5700/linux/initramfs/initrd.arm.initramfs_list"
 CONFIG_INITRAMFS_ROOT_UID=0
 CONFIG_INITRAMFS_ROOT_GID=0
 # CONFIG_CC_OPTIMIZE_FOR_SIZE is not set
@@ -759,7 +759,7 @@ CONFIG_KEYPAD_S3C=y
 # CONFIG_INPUT_JOYSTICK is not set
 # CONFIG_INPUT_TABLET is not set
 CONFIG_INPUT_TOUCHSCREEN=y
-CONFIG_TOUCHSCREEN_QT5480=y
+CONFIG_TOUCHSCREEN_QT5480=m
 # CONFIG_TOUCHSCREEN_S3C is not set
 # CONFIG_TOUCHSCREEN_FUJITSU is not set
 # CONFIG_TOUCHSCREEN_GUNZE is not set
